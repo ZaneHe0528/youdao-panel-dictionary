@@ -10,10 +10,14 @@ const VOICE_URL = 'https://dict.youdao.com/dictvoice?audio=';
 const YoudaoPanelDictionary = GObject.registerClass(
 class YoudaoPanelDictionary extends PanelMenu.Button {
     _init() {
-        super._init(0.0, 'Youdao Panel Dictionary', false);
+        super._init(0.0, 'Youdao Panel Dictionary', true);
 
         this._destroyed = false;
         this._pendingMessage = null;
+        this._clickLookupId = null;
+        this._focusEntryId = null;
+        this._stageCapturedEventId = null;
+        this._focusWindowId = null;
         this._downloadProcess = null;
         this._audioProcess = null;
         this._session = new Soup.Session();
@@ -21,6 +25,33 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
             GLib.get_user_cache_dir(),
             'youdao-panel-dictionary.mp3',
         ]);
+
+        this._resultsMenu = new PopupMenu.PopupMenu(this, 0.0, St.Side.TOP, 0);
+        this._resultsMenu.actor.add_style_class_name('panel-menu');
+        Main.uiGroup.add_actor(this._resultsMenu.actor);
+        this._resultsMenu.actor.hide();
+        this._stageCapturedEventId = global.stage.connect('captured-event', (_stage, event) => {
+            if (this._destroyed || !this._resultsMenu.isOpen)
+                return Clutter.EVENT_PROPAGATE;
+
+            const eventType = event.type();
+            if (eventType !== Clutter.EventType.BUTTON_PRESS &&
+                eventType !== Clutter.EventType.TOUCH_BEGIN)
+                return Clutter.EVENT_PROPAGATE;
+
+            const target = global.stage.get_event_actor(event);
+            const inEntry = target && (target === this._entry || this._entry.contains(target));
+            const inResults = target && (target === this._resultsMenu.actor ||
+                this._resultsMenu.actor.contains(target));
+            if (!inEntry && !inResults)
+                this._resultsMenu.close();
+
+            return Clutter.EVENT_PROPAGATE;
+        });
+        this._focusWindowId = global.display.connect('notify::focus-window', () => {
+            if (!this._destroyed && this._resultsMenu.isOpen)
+                this._resultsMenu.close();
+        });
 
         this._entry = new St.Entry({
             style_class: 'youdao-search-entry',
@@ -30,10 +61,18 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        this._entry.get_clutter_text().connect('activate', () => this._lookup());
-        this._entry.connect('button-press-event', () => {
-            global.stage.set_key_focus(this._entry.get_clutter_text());
-            return Clutter.EVENT_STOP;
+        const entryText = this._entry.get_clutter_text();
+        entryText.connect('activate', () => this._lookup());
+        entryText.connect('button-release-event', () => {
+            if (this._clickLookupId)
+                GLib.source_remove(this._clickLookupId);
+            this._clickLookupId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                this._clickLookupId = null;
+                if (!this._destroyed)
+                    this._lookup();
+                return GLib.SOURCE_REMOVE;
+            });
+            return Clutter.EVENT_PROPAGATE;
         });
         this.add_child(this._entry);
 
@@ -43,12 +82,12 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         });
         this._resultItem.add_style_class_name('youdao-result-item');
         this._resultItem.label.get_clutter_text().set_line_wrap(true);
-        this.menu.addMenuItem(this._resultItem);
+        this._resultsMenu.addMenuItem(this._resultItem);
 
         const audioItem = new PopupMenu.PopupBaseMenuItem({reactive: true});
         audioItem.add_child(this._makeAudioButton('英音', 1));
         audioItem.add_child(this._makeAudioButton('美音', 2));
-        this.menu.addMenuItem(audioItem);
+        this._resultsMenu.addMenuItem(audioItem);
     }
 
     _makeAudioButton(label, type) {
@@ -79,7 +118,15 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
             this._session.cancel_message(this._pendingMessage, Soup.Status.CANCELLED);
 
         this._resultItem.label.set_text('查询中...');
-        this.menu.open();
+        this._resultsMenu.open();
+        if (this._focusEntryId)
+            GLib.source_remove(this._focusEntryId);
+        this._focusEntryId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._focusEntryId = null;
+            if (!this._destroyed)
+                global.stage.set_key_focus(this._entry.get_clutter_text());
+            return GLib.SOURCE_REMOVE;
+        });
 
         const message = Soup.Message.new('GET', LOOKUP_URL + encodeURIComponent(query));
         this._pendingMessage = message;
@@ -177,7 +224,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                 this._downloadProcess = null;
                 if (!process.get_successful()) {
                     this._resultItem.label.set_text('发音下载失败');
-                    this.menu.open();
+                    this._resultsMenu.open();
                     return;
                 }
 
@@ -195,7 +242,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
             });
         } catch (_error) {
             this._resultItem.label.set_text('无法启动发音播放器');
-            this.menu.open();
+            this._resultsMenu.open();
         }
     }
 
@@ -203,12 +250,25 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         this._destroyed = true;
         this._session.abort();
         this._pendingMessage = null;
+        if (this._clickLookupId)
+            GLib.source_remove(this._clickLookupId);
+        this._clickLookupId = null;
+        if (this._focusEntryId)
+            GLib.source_remove(this._focusEntryId);
+        this._focusEntryId = null;
         if (this._downloadProcess)
             this._downloadProcess.force_exit();
         this._downloadProcess = null;
         if (this._audioProcess)
             this._audioProcess.force_exit();
         this._audioProcess = null;
+        if (this._stageCapturedEventId)
+            global.stage.disconnect(this._stageCapturedEventId);
+        this._stageCapturedEventId = null;
+        if (this._focusWindowId)
+            global.display.disconnect(this._focusWindowId);
+        this._focusWindowId = null;
+        this._resultsMenu.destroy();
         super.destroy();
     }
 });
