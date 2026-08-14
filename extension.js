@@ -4,7 +4,7 @@ const Main = imports.ui.main;
 const PanelMenu = imports.ui.panelMenu;
 const PopupMenu = imports.ui.popupMenu;
 
-const LOOKUP_URL = 'https://dict.youdao.com/suggest?num=3&doctype=json&ver=3.0&le=eng&q=';
+const LOOKUP_URL = 'https://dict.youdao.com/jsonapi?q=';
 const VOICE_URL = 'https://dict.youdao.com/dictvoice?audio=';
 
 const YoudaoPanelDictionary = GObject.registerClass(
@@ -95,11 +95,15 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
 
             try {
                 const payload = JSON.parse(response.response_body.data);
-                const entries = payload.data?.entries ?? [];
-                const result = entries
-                    .map(entry => `${entry.entry}\n${entry.explain}`)
-                    .join('\n\n');
-                this._resultItem.label.set_text(result || '未找到该词');
+                const entry = payload.ec?.word?.[0];
+                const phonetics = [];
+                if (entry?.ukphone)
+                    phonetics.push(`英 /${entry.ukphone}/`);
+                if (entry?.usphone)
+                    phonetics.push(`美 /${entry.usphone}/`);
+
+                const pronunciation = phonetics.join('    ') || '未找到音标';
+                this._resultItem.label.set_text(`${query}\n${pronunciation}`);
             } catch (_error) {
                 this._resultItem.label.set_text('有道返回了无法识别的结果');
             }

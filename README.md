@@ -1,11 +1,11 @@
 # Youdao Panel Dictionary
 
-一个适用于 Ubuntu GNOME 42 的顶栏查词扩展。它把一个横向搜索框放进 GNOME 状态栏，输入单词后按回车即可查看有道释义，并可播放英音或美音。
+一个适用于 Ubuntu GNOME 42 的顶栏查词扩展。它把一个横向搜索框放进 GNOME 状态栏，输入单词后按回车即可查看英音和美音音标，并可播放对应发音。
 
 ## 功能
 
 - 顶栏内嵌搜索框，支持直接输入和回车查询
-- 显示最多 3 条有道词典候选释义
+- 结果仅显示输入的单词、英音音标和美音音标
 - 英音、美音播放按钮
 - 查询请求可取消，扩展禁用时会停止网络请求和音频进程
 - 不需要 App Key，适合个人使用
@@ -33,11 +33,11 @@ gnome-extensions enable youdao-panel-dictionary@local
 
 1. 点击顶栏中的搜索框。
 2. 输入英文单词并按回车。
-3. 在弹出的结果菜单中查看释义，点击“英音”或“美音”播放发音。
+3. 在弹出的结果菜单中查看音标，点击“英音”或“美音”播放发音。
 
 ## 工作方式
 
-扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。查词请求使用有道公开的 `suggest` 接口；发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
+扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。音标请求使用有道公开的 `jsonapi` 接口；发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
 
 有道公开端点不是正式 OpenAPI 的稳定性承诺，接口或访问策略变化时可能需要更新实现。不要将它用于高可靠生产服务。
 
