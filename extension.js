@@ -103,7 +103,21 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                     phonetics.push(`美 /${entry.usphone}/`);
 
                 const pronunciation = phonetics.join('    ') || '未找到音标';
-                this._resultItem.label.set_text(`${query}\n${pronunciation}`);
+                const meanings = [];
+                for (const translation of (entry?.trs ?? [])) {
+                    for (const item of (translation.tr ?? [])) {
+                        const values = item.l?.i;
+                        if (Array.isArray(values))
+                            values.forEach(value => meanings.push(value));
+                        else if (values)
+                            meanings.push(values);
+                    }
+                }
+
+                const definitionText = meanings.length
+                    ? meanings.map((meaning, index) => `${index + 1}. ${meaning}`).join('\n')
+                    : '未找到中文释义';
+                this._resultItem.label.set_text(`${query}\n${pronunciation}\n\n${definitionText}`);
             } catch (_error) {
                 this._resultItem.label.set_text('有道返回了无法识别的结果');
             }
