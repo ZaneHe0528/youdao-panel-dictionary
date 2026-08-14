@@ -1,0 +1,7 @@
+{
+  "uuid": "youdao-panel-dictionary@local",
+  "name": "Youdao Panel Dictionary",
+  "description": "Look up words with Youdao from the GNOME top bar.",
+  "version": 1,
+  "shell-version": ["42"]
+}

@@ -1,0 +1,33 @@
+.youdao-search-entry {
+    width: 210px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 4px;
+    color: #eeeeec;
+    background-color: rgba(255, 255, 255, 0.12);
+    caret-color: #ffffff;
+    selected-color: #ffffff;
+    selection-background-color: #3584e4;
+}
+
+.youdao-search-entry:focus {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.youdao-result-item {
+    width: 380px;
+}
+
+.youdao-audio-button {
+    padding: 8px 12px;
+    border-radius: 4px;
+}
+
+.youdao-audio-button:hover,
+.youdao-audio-button:focus {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.youdao-audio-content {
+    spacing: 6px;
+}
