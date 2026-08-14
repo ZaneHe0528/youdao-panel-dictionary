@@ -6,6 +6,7 @@
 
 - 顶栏内嵌搜索框，支持直接输入和回车查询
 - 显示输入的单词、英音音标、美音音标和详细中文释义
+- 标准词典没有收录时，回退到有道专业网络释义，适合 PyTorch、ROS、SLAM、RAG 等新术语
 - 英音、美音播放按钮
 - 查询请求可取消，扩展禁用时会停止网络请求和音频进程
 - 不需要 App Key，适合个人使用
@@ -37,7 +38,7 @@ gnome-extensions enable youdao-panel-dictionary@local
 
 ## 工作方式
 
-扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。查词请求使用有道公开的 `jsonapi` 接口，从中读取音标和词性释义；发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
+扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。查词请求使用有道公开的 `jsonapi` 接口，优先读取词典音标和详细释义；若标准词典没有结果，则使用其中的 `web_trans` 专业网络释义回退。发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
 
 有道公开端点不是正式 OpenAPI 的稳定性承诺，接口或访问策略变化时可能需要更新实现。不要将它用于高可靠生产服务。
 

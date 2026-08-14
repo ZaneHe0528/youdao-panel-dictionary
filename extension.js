@@ -114,8 +114,32 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                     }
                 }
 
+                let networkFallback = false;
+                if (!meanings.length) {
+                    networkFallback = true;
+                    const translations = payload.web_trans?.['web-translation'] ?? [];
+                    for (const webResult of translations) {
+                        for (const translation of (webResult.trans ?? [])) {
+                            const value = translation.value;
+                            const summary = (translation.summary?.line?.[0] ?? '')
+                                .replace(/<[^>]*>/g, '')
+                                .replace(/&nbsp;/g, ' ')
+                                .trim();
+                            const detail = value && summary
+                                ? `${value}: ${summary}`
+                                : (value || summary);
+                            if (detail)
+                                meanings.push(detail);
+                            if (meanings.length >= 5)
+                                break;
+                        }
+                        if (meanings.length >= 5)
+                            break;
+                    }
+                }
+
                 const definitionText = meanings.length
-                    ? meanings.map((meaning, index) => `${index + 1}. ${meaning}`).join('\n')
+                    ? `${networkFallback ? '专业网络释义：\n' : ''}${meanings.map((meaning, index) => `${index + 1}. ${meaning}`).join('\n')}`
                     : '未找到中文释义';
                 this._resultItem.label.set_text(`${query}\n${pronunciation}\n\n${definitionText}`);
             } catch (_error) {
