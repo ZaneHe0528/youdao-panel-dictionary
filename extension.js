@@ -30,27 +30,11 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         this._resultsMenu.actor.add_style_class_name('panel-menu');
         Main.uiGroup.add_actor(this._resultsMenu.actor);
         this._resultsMenu.actor.hide();
-        this._stageCapturedEventId = global.stage.connect('captured-event', (_stage, event) => {
-            if (this._destroyed || !this._resultsMenu.isOpen)
-                return Clutter.EVENT_PROPAGATE;
-
-            const eventType = event.type();
-            if (eventType !== Clutter.EventType.BUTTON_PRESS &&
-                eventType !== Clutter.EventType.TOUCH_BEGIN)
-                return Clutter.EVENT_PROPAGATE;
-
-            const target = global.stage.get_event_actor(event);
-            const inEntry = target && (target === this._entry || this._entry.contains(target));
-            const inResults = target && (target === this._resultsMenu.actor ||
-                this._resultsMenu.actor.contains(target));
-            if (!inEntry && !inResults)
-                this._resultsMenu.close();
-
-            return Clutter.EVENT_PROPAGATE;
-        });
-        this._focusWindowId = global.display.connect('notify::focus-window', () => {
-            if (!this._destroyed && this._resultsMenu.isOpen)
-                this._resultsMenu.close();
+        this._resultsMenu.connect('open-state-changed', (_menu, open) => {
+            if (open && !this._destroyed)
+                this._connectGlobalListeners();
+            else
+                this._disconnectGlobalListeners();
         });
 
         this._entry = new St.Entry({
@@ -88,6 +72,44 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         audioItem.add_child(this._makeAudioButton('英音', 1));
         audioItem.add_child(this._makeAudioButton('美音', 2));
         this._resultsMenu.addMenuItem(audioItem);
+    }
+
+    _connectGlobalListeners() {
+        if (!this._stageCapturedEventId) {
+            this._stageCapturedEventId = global.stage.connect('captured-event', (_stage, event) => {
+                if (this._destroyed || !this._resultsMenu.isOpen)
+                    return Clutter.EVENT_PROPAGATE;
+
+                const eventType = event.type();
+                if (eventType !== Clutter.EventType.BUTTON_PRESS &&
+                    eventType !== Clutter.EventType.TOUCH_BEGIN)
+                    return Clutter.EVENT_PROPAGATE;
+
+                const target = global.stage.get_event_actor(event);
+                const inEntry = target && (target === this._entry || this._entry.contains(target));
+                const inResults = target && (target === this._resultsMenu.actor ||
+                    this._resultsMenu.actor.contains(target));
+                if (!inEntry && !inResults)
+                    this._resultsMenu.close();
+
+                return Clutter.EVENT_PROPAGATE;
+            });
+        }
+        if (!this._focusWindowId) {
+            this._focusWindowId = global.display.connect('notify::focus-window', () => {
+                if (!this._destroyed && this._resultsMenu.isOpen)
+                    this._resultsMenu.close();
+            });
+        }
+    }
+
+    _disconnectGlobalListeners() {
+        if (this._stageCapturedEventId)
+            global.stage.disconnect(this._stageCapturedEventId);
+        this._stageCapturedEventId = null;
+        if (this._focusWindowId)
+            global.display.disconnect(this._focusWindowId);
+        this._focusWindowId = null;
     }
 
     _makeAudioButton(label, type) {
@@ -262,12 +284,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         if (this._audioProcess)
             this._audioProcess.force_exit();
         this._audioProcess = null;
-        if (this._stageCapturedEventId)
-            global.stage.disconnect(this._stageCapturedEventId);
-        this._stageCapturedEventId = null;
-        if (this._focusWindowId)
-            global.display.disconnect(this._focusWindowId);
-        this._focusWindowId = null;
+        this._disconnectGlobalListeners();
         this._resultsMenu.destroy();
         super.destroy();
     }
