@@ -7,6 +7,8 @@ const PopupMenu = imports.ui.popupMenu;
 const LOOKUP_URL = 'https://dict.youdao.com/jsonapi?q=';
 const VOICE_URL = 'https://dict.youdao.com/dictvoice?audio=';
 const AUTO_LOOKUP_DELAY_MS = 400;
+const HISTORY_LIMIT = 500;
+const HISTORY_SHOWN = 10;
 
 const YoudaoPanelDictionary = GObject.registerClass(
 class YoudaoPanelDictionary extends PanelMenu.Button {
@@ -28,6 +30,13 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
             GLib.get_user_cache_dir(),
             'youdao-panel-dictionary.mp3',
         ]);
+        this._historyDir = GLib.build_filenamev([
+            GLib.get_user_data_dir(),
+            'youdao-panel-dictionary',
+        ]);
+        this._historyPath = GLib.build_filenamev([this._historyDir, 'history.json']);
+        this._history = this._loadHistory();
+        this._lastResult = null;
 
         this._resultsMenu = new PopupMenu.PopupMenu(this, 0.0, St.Side.TOP, 0);
         this._resultsMenu.actor.add_style_class_name('panel-menu');
@@ -38,8 +47,10 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                 this._connectGlobalListeners();
             } else {
                 this._disconnectGlobalListeners();
-                if (!this._destroyed)
+                if (!this._destroyed) {
+                    this._recordLastResult();
                     this._entry.set_text('');
+                }
             }
         });
 
@@ -83,10 +94,109 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         this._resultItem.label.get_clutter_text().set_line_wrap(true);
         this._resultsMenu.addMenuItem(this._resultItem);
 
-        const audioItem = new PopupMenu.PopupBaseMenuItem({reactive: true});
-        audioItem.add_child(this._makeAudioButton('英音', 1));
-        audioItem.add_child(this._makeAudioButton('美音', 2));
-        this._resultsMenu.addMenuItem(audioItem);
+        this._historySection = new PopupMenu.PopupMenuSection();
+        this._resultsMenu.addMenuItem(this._historySection);
+
+        this._audioItem = new PopupMenu.PopupBaseMenuItem({reactive: true});
+        this._audioItem.add_child(this._makeAudioButton('英音', 1));
+        this._audioItem.add_child(this._makeAudioButton('美音', 2));
+        this._resultsMenu.addMenuItem(this._audioItem);
+    }
+
+    _loadHistory() {
+        try {
+            const [, contents] = GLib.file_get_contents(this._historyPath);
+            const history = JSON.parse(new TextDecoder().decode(contents));
+            return Array.isArray(history) ? history : [];
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    _saveHistory() {
+        try {
+            GLib.mkdir_with_parents(this._historyDir, 0o755);
+            const bytes = new GLib.Bytes(new TextEncoder().encode(JSON.stringify(this._history, null, 1)));
+            Gio.File.new_for_path(this._historyPath).replace_contents_bytes_async(
+                bytes, null, false, Gio.FileCreateFlags.REPLACE_DESTINATION, null,
+                (file, result) => {
+                    try {
+                        file.replace_contents_finish(result);
+                    } catch (error) {
+                        logError(error, 'youdao-panel-dictionary: failed to save history');
+                    }
+                });
+        } catch (error) {
+            logError(error, 'youdao-panel-dictionary: failed to save history');
+        }
+    }
+
+    _recordLastResult() {
+        const record = this._lastResult;
+        this._lastResult = null;
+        if (!record)
+            return;
+
+        const key = record.word.toLowerCase();
+        const index = this._history.findIndex(item => item.word.toLowerCase() === key);
+        const count = index >= 0 ? (this._history[index].count ?? 1) + 1 : 1;
+        if (index >= 0)
+            this._history.splice(index, 1);
+        this._history.unshift({...record, count, time: Date.now()});
+        this._history.length = Math.min(this._history.length, HISTORY_LIMIT);
+        this._saveHistory();
+    }
+
+    _showHistory() {
+        this._cancelAutoLookup();
+        if (this._pendingMessage)
+            this._session.cancel_message(this._pendingMessage, Soup.Status.CANCELLED);
+        this._pendingMessage = null;
+
+        const recent = this._history.slice(0, HISTORY_SHOWN);
+        this._resultItem.label.set_text(recent.length ? '最近查过' : '还没有查词记录');
+        this._historySection.removeAll();
+        recent.forEach(record => this._historySection.addMenuItem(this._makeHistoryItem(record)));
+        this._audioItem.hide();
+        this._resultsMenu.open();
+        this._focusEntry();
+    }
+
+    _makeHistoryItem(record) {
+        const fullMeaning = record.meaning ?? '';
+        const meaning = fullMeaning.length > 28 ? `${fullMeaning.slice(0, 28)}…` : fullMeaning;
+        const label = new St.Label({
+            text: `${record.word}    ${meaning}`,
+            x_align: Clutter.ActorAlign.START,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        const button = new St.Button({
+            child: label,
+            style_class: 'youdao-history-button',
+            can_focus: true,
+            x_expand: true,
+            accessible_name: `重新查询 ${record.word}`,
+        });
+        button.connect('clicked', () => {
+            this._entry.set_text(record.word);
+            this._entry.get_clutter_text().set_cursor_position(-1);
+            this._lookup(true);
+        });
+
+        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
+        item.add_child(button);
+        return item;
+    }
+
+    _focusEntry() {
+        if (this._focusEntryId)
+            GLib.source_remove(this._focusEntryId);
+        this._focusEntryId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._focusEntryId = null;
+            if (!this._destroyed)
+                global.stage.set_key_focus(this._entry.get_clutter_text());
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _connectGlobalListeners() {
@@ -186,11 +296,16 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
     _lookup(autoPlay = false) {
         this._cancelAutoLookup();
         const query = this._entry.get_text().trim();
-        if (!query)
+        if (!query) {
+            this._showHistory();
             return;
+        }
 
         const isChinese = /[\u3400-\u9fff]/.test(query);
         this._audioWord = null;
+        this._lastResult = null;
+        this._historySection.removeAll();
+        this._audioItem.show();
         if (autoPlay && !isChinese)
             this._play(2);
 
@@ -199,14 +314,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
 
         this._resultItem.label.set_text('查询中...');
         this._resultsMenu.open();
-        if (this._focusEntryId)
-            GLib.source_remove(this._focusEntryId);
-        this._focusEntryId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-            this._focusEntryId = null;
-            if (!this._destroyed)
-                global.stage.set_key_focus(this._entry.get_clutter_text());
-            return GLib.SOURCE_REMOVE;
-        });
+        this._focusEntry();
 
         const message = Soup.Message.new('GET', LOOKUP_URL + encodeURIComponent(query));
         this._pendingMessage = message;
@@ -229,7 +337,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                 if (entry?.usphone)
                     phonetics.push(`美 /${entry.usphone}/`);
 
-                let pronunciation = phonetics.join('    ') || (isChinese ? '未找到拼音' : '未找到音标');
+                let phonetic = phonetics.join('    ');
                 const meanings = [];
                 for (const translation of (entry?.trs ?? [])) {
                     for (const item of (translation.tr ?? [])) {
@@ -245,7 +353,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                 const ceEntry = payload.ce?.word?.[0];
                 if (!meanings.length && ceEntry) {
                     if (ceEntry.phone)
-                        pronunciation = `拼音 ${ceEntry.phone}`;
+                        phonetic = `拼音 ${ceEntry.phone}`;
                     for (const translation of (ceEntry.trs ?? [])) {
                         for (const item of (translation.tr ?? [])) {
                             const line = item.l ?? {};
@@ -297,8 +405,18 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
                 const definitionText = meanings.length
                     ? `${networkFallback ? '专业网络释义：\n' : ''}${meanings.map((meaning, index) => `${index + 1}. ${meaning}`).join('\n')}`
                     : (isChinese ? '未找到英文释义' : '未找到中文释义');
+                const pronunciation = phonetic || (isChinese ? '未找到拼音' : '未找到音标');
                 this._resultItem.label.set_text(`${query}\n${pronunciation}\n\n${definitionText}`);
                 this._audioWord = audioWord;
+                if (meanings.length && (!networkFallback || autoPlay)) {
+                    this._lastResult = {
+                        word: query,
+                        phonetic,
+                        meaning: meanings.slice(0, 2).join('；'),
+                    };
+                    if (autoPlay)
+                        this._recordLastResult();
+                }
                 if (autoPlay && isChinese && audioWord)
                     this._play(2);
             } catch (_error) {
@@ -359,6 +477,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
     }
 
     destroy() {
+        this._recordLastResult();
         this._destroyed = true;
         this._session.abort();
         this._pendingMessage = null;

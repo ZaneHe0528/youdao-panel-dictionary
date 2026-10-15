@@ -28,6 +28,16 @@
     background-color: rgba(255, 255, 255, 0.1);
 }
 
+.youdao-history-button {
+    padding: 6px 12px;
+    border-radius: 4px;
+}
+
+.youdao-history-button:hover,
+.youdao-history-button:focus {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
 .youdao-audio-content {
     spacing: 6px;
 }
