@@ -34,10 +34,13 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         Main.uiGroup.add_actor(this._resultsMenu.actor);
         this._resultsMenu.actor.hide();
         this._resultsMenu.connect('open-state-changed', (_menu, open) => {
-            if (open && !this._destroyed)
+            if (open && !this._destroyed) {
                 this._connectGlobalListeners();
-            else
+            } else {
                 this._disconnectGlobalListeners();
+                if (!this._destroyed)
+                    this._entry.set_text('');
+            }
         });
 
         this._entry = new St.Entry({
