@@ -1,8 +1,8 @@
 # Youdao Panel Dictionary
 
-一个适用于 Ubuntu GNOME 42 的顶栏查词扩展。它把一个搜索框放进 GNOME 顶栏，输入英文单词或中文词语后自动弹出释义，并可播放英音、美音发音。
+一个适用于 Ubuntu 24.04 GNOME 46 的顶栏查词扩展。它把一个搜索框放进 GNOME 顶栏，输入英文单词或中文词语后自动弹出释义，并可播放英音、美音发音。
 
-A top-bar dictionary extension for Ubuntu GNOME 42. It puts a search box in the GNOME top bar, shows definitions automatically as you type an English word or a Chinese phrase, and plays British or American pronunciations.
+A top-bar dictionary extension for Ubuntu 24.04 GNOME 46. It puts a search box in the GNOME top bar, shows definitions automatically as you type an English word or a Chinese phrase, and plays British or American pronunciations.
 
 ## 功能 / Features
 
@@ -29,15 +29,14 @@ A top-bar dictionary extension for Ubuntu GNOME 42. It puts a search box in the 
 
 ## 兼容性 / Compatibility
 
-- GNOME Shell 42
-- Ubuntu 22.04 风格的 GNOME Shell X11 会话
-  Ubuntu 22.04-style GNOME Shell X11 session
+- GNOME Shell 46（Ubuntu 24.04）
+  GNOME Shell 46 (Ubuntu 24.04)
 - 需要 `curl` 和 `gst-play-1.0` 才能播放发音
   `curl` and `gst-play-1.0` are required for pronunciation playback
 
-当前版本使用 GNOME Shell 42 的旧式 JavaScript API。GNOME 45 及更高版本改用了新的扩展 API，需要单独迁移，不能直接复用本版本。
+当前版本使用 GNOME 45 起的 ESM 扩展 API 和 libsoup 3。GNOME 42（Ubuntu 22.04）请使用 `main` 分支的旧版本。
 
-This version uses the legacy JavaScript API of GNOME Shell 42. GNOME 45 and later use a new extension API, so this version needs a separate port and cannot be used there as is.
+This version uses the ESM extension API introduced in GNOME 45 and libsoup 3. For GNOME 42 (Ubuntu 22.04), use the legacy version on the `main` branch.
 
 ## 安装 / Installation
 
@@ -48,9 +47,9 @@ gnome-extensions install --force /tmp/youdao-panel-dictionary@local.shell-extens
 gnome-extensions enable youdao-panel-dictionary@local
 ```
 
-如果扩展没有马上出现在顶栏，在 X11 会话中按 `Alt+F2`，输入 `r` 并回车，重载 GNOME Shell。
+如果扩展没有马上出现在顶栏，在 X11 会话中按 `Alt+F2`，输入 `r` 并回车，重载 GNOME Shell；Wayland 会话需要注销后重新登录。
 
-If the extension does not appear in the top bar right away, press `Alt+F2` in an X11 session, type `r`, and press Enter to reload GNOME Shell.
+If the extension does not appear in the top bar right away, press `Alt+F2` in an X11 session, type `r`, and press Enter to reload GNOME Shell; in a Wayland session, log out and log back in.
 
 ## 使用 / Usage
 
@@ -65,9 +64,9 @@ If the extension does not appear in the top bar right away, press `Alt+F2` in an
 
 ## 工作方式 / How It Works
 
-扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。查词请求使用有道公开的 `jsonapi` 接口：英文查询读取其中的 `ec` 英汉词典结果，中文查询读取 `ce` 汉英词典结果；若标准词典没有结果，则使用 `web_trans` 专业网络释义回退。发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
+扩展继承 `PanelMenu.Button`，通过 `Main.panel.addToStatusArea()` 注册到 GNOME 顶栏。查词请求通过 libsoup 3 发送，使用有道公开的 `jsonapi` 接口：英文查询读取其中的 `ec` 英汉词典结果，中文查询读取 `ce` 汉英词典结果；若标准词典没有结果，则使用 `web_trans` 专业网络释义回退。发音地址由 `dictvoice` 接口提供，先用 `curl` 下载到用户缓存目录，再交给 GStreamer 播放。
 
-The extension subclasses `PanelMenu.Button` and registers itself in the GNOME top bar with `Main.panel.addToStatusArea()`. Lookups use Youdao's public `jsonapi` endpoint: English queries read its `ec` (English–Chinese) results, and Chinese queries read its `ce` (Chinese–English) results; when the standard dictionary has nothing, it falls back to the `web_trans` web definitions. Pronunciation audio comes from the `dictvoice` endpoint; it is downloaded with `curl` into the user cache directory and then played with GStreamer.
+The extension subclasses `PanelMenu.Button` and registers itself in the GNOME top bar with `Main.panel.addToStatusArea()`. Lookups are sent with libsoup 3 and use Youdao's public `jsonapi` endpoint: English queries read its `ec` (English–Chinese) results, and Chinese queries read its `ce` (Chinese–English) results; when the standard dictionary has nothing, it falls back to the `web_trans` web definitions. Pronunciation audio comes from the `dictvoice` endpoint; it is downloaded with `curl` into the user cache directory and then played with GStreamer.
 
 查词需要联网，查询的词语会发送到有道服务器。有道公开端点不是正式 OpenAPI 的稳定性承诺，接口或访问策略变化时可能需要更新实现。不要将它用于高可靠生产服务。
 
