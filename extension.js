@@ -1,8 +1,14 @@
-const {Clutter, Gio, GLib, GObject, Soup, St} = imports.gi;
+import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
+import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
+import Soup from 'gi://Soup?version=3.0';
+import St from 'gi://St';
 
-const Main = imports.ui.main;
-const PanelMenu = imports.ui.panelMenu;
-const PopupMenu = imports.ui.popupMenu;
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 const LOOKUP_URL = 'https://dict.youdao.com/jsonapi?q=';
 const VOICE_URL = 'https://dict.youdao.com/dictvoice?audio=';
@@ -16,7 +22,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         super._init(0.0, 'Youdao Panel Dictionary', true);
 
         this._destroyed = false;
-        this._pendingMessage = null;
+        this._lookupCancellable = null;
         this._clickLookupId = null;
         this._focusEntryId = null;
         this._autoLookupId = null;
@@ -40,7 +46,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
 
         this._resultsMenu = new PopupMenu.PopupMenu(this, 0.0, St.Side.TOP, 0);
         this._resultsMenu.actor.add_style_class_name('panel-menu');
-        Main.uiGroup.add_actor(this._resultsMenu.actor);
+        Main.uiGroup.add_child(this._resultsMenu.actor);
         this._resultsMenu.actor.hide();
         this._resultsMenu.connect('open-state-changed', (_menu, open) => {
             if (open && !this._destroyed) {
@@ -147,11 +153,15 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         this._saveHistory();
     }
 
+    _cancelPendingLookup() {
+        if (this._lookupCancellable)
+            this._lookupCancellable.cancel();
+        this._lookupCancellable = null;
+    }
+
     _showHistory() {
         this._cancelAutoLookup();
-        if (this._pendingMessage)
-            this._session.cancel_message(this._pendingMessage, Soup.Status.CANCELLED);
-        this._pendingMessage = null;
+        this._cancelPendingLookup();
 
         const recent = this._history.slice(0, HISTORY_SHOWN);
         this._resultItem.label.set_text(recent.length ? '最近查过' : '还没有查词记录');
@@ -278,9 +288,7 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
     _scheduleAutoLookup() {
         this._cancelAutoLookup();
         if (!this._entry.get_text().trim()) {
-            if (this._pendingMessage)
-                this._session.cancel_message(this._pendingMessage, Soup.Status.CANCELLED);
-            this._pendingMessage = null;
+            this._cancelPendingLookup();
             this._resultsMenu.close();
             return;
         }
@@ -309,27 +317,34 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
         if (autoPlay && !isChinese)
             this._play(2);
 
-        if (this._pendingMessage)
-            this._session.cancel_message(this._pendingMessage, Soup.Status.CANCELLED);
+        this._cancelPendingLookup();
 
         this._resultItem.label.set_text('查询中...');
         this._resultsMenu.open();
         this._focusEntry();
 
         const message = Soup.Message.new('GET', LOOKUP_URL + encodeURIComponent(query));
-        this._pendingMessage = message;
-        this._session.queue_message(message, (_session, response) => {
-            if (this._destroyed || response !== this._pendingMessage)
+        const cancellable = new Gio.Cancellable();
+        this._lookupCancellable = cancellable;
+        this._session.send_and_read_async(message, GLib.PRIORITY_DEFAULT, cancellable, (session, result) => {
+            let bytes;
+            try {
+                bytes = session.send_and_read_finish(result);
+            } catch (_error) {
+                bytes = null;
+            }
+
+            if (this._destroyed || cancellable !== this._lookupCancellable)
                 return;
 
-            this._pendingMessage = null;
-            if (response.status_code !== Soup.Status.OK) {
+            this._lookupCancellable = null;
+            if (!bytes || message.get_status() !== Soup.Status.OK) {
                 this._resultItem.label.set_text('查询失败，请检查网络');
                 return;
             }
 
             try {
-                const payload = JSON.parse(response.response_body.data);
+                const payload = JSON.parse(new TextDecoder().decode(bytes.get_data()));
                 const entry = payload.ec?.word?.[0];
                 const phonetics = [];
                 if (entry?.ukphone)
@@ -479,8 +494,8 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
     destroy() {
         this._recordLastResult();
         this._destroyed = true;
+        this._cancelPendingLookup();
         this._session.abort();
-        this._pendingMessage = null;
         if (this._clickLookupId)
             GLib.source_remove(this._clickLookupId);
         this._clickLookupId = null;
@@ -500,17 +515,14 @@ class YoudaoPanelDictionary extends PanelMenu.Button {
     }
 });
 
-let indicator = null;
+export default class YoudaoPanelDictionaryExtension extends Extension {
+    enable() {
+        this._indicator = new YoudaoPanelDictionary();
+        Main.panel.addToStatusArea('youdao-panel-dictionary', this._indicator, 0, 'right');
+    }
 
-function init() {
-}
-
-function enable() {
-    indicator = new YoudaoPanelDictionary();
-    Main.panel.addToStatusArea('youdao-panel-dictionary', indicator, 0, 'right');
-}
-
-function disable() {
-    indicator.destroy();
-    indicator = null;
+    disable() {
+        this._indicator.destroy();
+        this._indicator = null;
+    }
 }
